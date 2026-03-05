@@ -30,3 +30,12 @@
 *.exe
 *.out
 *.app
+
+*.pdb
+*.jpg
+DirectX11Practice.vcxproj
+DirectX11Practice.vcxproj.filters
+DirectX11Practice.vcxproj.user
+src/cgmath.h
+src/mouse.h
+src/stb_image.h

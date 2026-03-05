@@ -10,10 +10,8 @@
 #include <d3d11.h>
 #include <d3dcompiler.h>
 
-/*
 #include "cgmath.h"
 #include "mouse.h"
-*/
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -24,6 +22,11 @@ struct Vertex
 	vec3 normal;
 	vec2 texcoord;
 };
+
+void Initialize(HWND windowHandle);
+void ProcessInput(HWND hWnd, const MSG& msg);
+void Update(double elapsedTime, HWND hWnd);
+void Render();
 
 class URenderer
 {
@@ -127,7 +130,7 @@ public:
 		D3D11_RASTERIZER_DESC rasterizerdesc = {};
 		rasterizerdesc.CullMode = D3D11_CULL_BACK;
 
-		rasterizerdesc.FrontCounterClockwise = TRUE;
+		//rasterizerdesc.FrontCounterClockwise = TRUE;
 
 		rasterizerdesc.FillMode = D3D11_FILL_SOLID;
 		Device->CreateRasterizerState(&rasterizerdesc, &RasterizerStateSolid);
@@ -335,6 +338,22 @@ public:
 	}
 };
 
+////////////////////////////////////
+URenderer renderer;
+std::vector<Vertex> sphereVertices;
+ID3D11Buffer* vertexBufferSphere = nullptr;
+UINT numVerticesSphere;
+camera cam, cam0;
+
+bool bIsExit = false;
+bool b_rotating = true;
+float current_angle = 0.0f;
+int i_solid_color = 0;
+bool bWireframe = false;
+
+mouse tb(1.0f);
+////////////////////////////////////
+
 std::vector<Vertex> create_sphere_vertices()
 {
 	std::vector<Vertex> v;
@@ -363,14 +382,32 @@ std::vector<Vertex> create_sphere_vertices()
 		{
 			uint k0 = i * num_v_x + j; uint k1 = (i + 1) * num_v_x + j;
 			uint k2 = (i + 1) * num_v_x + (j + 1); uint k3 = i * num_v_x + (j + 1);
-			indices.push_back(k0); indices.push_back(k1); indices.push_back(k3);
-			indices.push_back(k1); indices.push_back(k2); indices.push_back(k3);
+			//0-1-3, 1-2-3(CCW) -> 0-3-1, 1-3-2(CW)
+			//indices.push_back(k0); indices.push_back(k1); indices.push_back(k3);
+			//indices.push_back(k1); indices.push_back(k2); indices.push_back(k3);
+			indices.push_back(k0); indices.push_back(k3); indices.push_back(k1);
+			indices.push_back(k1); indices.push_back(k3); indices.push_back(k2);
 		}
 	}
 
 	std::vector<Vertex> result_vertices;
 	for (uint idx : indices) result_vertices.push_back(v[idx]);
 	return result_vertices;
+}
+
+mat4 perspective_d3d(float fovy, float aspect, float n, float f)
+{
+	mat4 result = {};
+	float tanHalfFovy = tan(fovy / 2.0f);
+
+	result._11 = 1.0f / (aspect * tanHalfFovy);
+	result._22 = 1.0f / tanHalfFovy;
+	result._33 = f / (n - f);
+	result._34 = (n * f) / (n - f);
+	result._43 = -1.0f;
+	result._44 = 0.0f;
+
+	return result;
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -392,37 +429,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	HWND hWnd = CreateWindowExW(0, WindowClassName, Title, WS_POPUP | WS_VISIBLE | WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, 1024, 1024, nullptr, nullptr, hInstance, nullptr);
 
-	URenderer renderer;
-	renderer.Create(hWnd);
-	renderer.CreateShader();
-	renderer.CreateConstantBuffer();
-	renderer.CreateTextureAndSampler("earth.jpg");
-
-	std::vector<Vertex> sphereVertices = create_sphere_vertices();
-	ID3D11Buffer* vertexBufferSphere = renderer.CreateVertexBuffer(sphereVertices.data(), (UINT)(sizeof(Vertex) * sphereVertices.size()));
-	UINT numVerticesSphere = (UINT)sphereVertices.size();
-
-	bool bIsExit = false;
-	bool b_rotating = true;
-	float current_angle = 0.0f;
-	int i_solid_color = 0;
-	bool bWireframe = false;
+	Initialize(hWnd);
 
 	const int targetFPS = 30;
 	const double targetFrameTime = 1000.0 / targetFPS;
 	LARGE_INTEGER frequency, startTime, endTime;
 	QueryPerformanceFrequency(&frequency);
 	double elapsedTime = 0.0;
-
-	camera cam;
-	cam.eye = vec3(5.0f, 0.0f, 0.0f);
-	cam.at = vec3(0.0f, 0.0f, 0.0f);
-	cam.up = vec3(0.0f, 1.0f, 0.0f);
-	cam.view_matrix = mat4::look_at(cam.eye, cam.at, cam.up);
-
-	camera cam0 = cam;
-
-	trackball tb(1.0f);
 
 	while (bIsExit == false)
 	{
@@ -433,118 +446,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
 			if (msg.message == WM_QUIT) { bIsExit = true; break; }
-
-			if (msg.message == WM_KEYDOWN)
-			{
-				if (msg.wParam == 'Q') bIsExit = true;
-				if (msg.wParam == 'D') i_solid_color = (i_solid_color + 1) % 3;
-				if (msg.wParam == 'R') b_rotating = !b_rotating;
-				if (msg.wParam == 'W') bWireframe = !bWireframe;
-				if (msg.wParam == VK_HOME)
-				{
-					current_angle = 0.0f;
-					cam = cam0;
-				}
-			}
-			else if (msg.message == WM_LBUTTONDOWN)
-			{
-				int x = LOWORD(msg.lParam);
-				int y = HIWORD(msg.lParam);
-
-				RECT rect;
-				GetClientRect(hWnd, &rect);
-				ivec2 window_size = { rect.right - rect.left, rect.bottom - rect.top };
-
-				vec2 npos = cursor_to_ndc(dvec2(x, y), window_size);
-				tb.begin(cam, npos);
-			}
-			else if (msg.message == WM_LBUTTONUP)
-			{
-				tb.end();
-			}
-			else if (msg.message == WM_MOUSEMOVE)
-			{
-				if (tb.is_tracking())
-				{
-					int x = LOWORD(msg.lParam);
-					int y = HIWORD(msg.lParam);
-
-					RECT rect;
-					GetClientRect(hWnd, &rect);
-					ivec2 window_size = { rect.right - rect.left, rect.bottom - rect.top };
-
-					vec2 npos = cursor_to_ndc(dvec2(x, y), window_size);
-					cam = tb.update(npos);
-				}
-			}
+			ProcessInput(hWnd, msg);
 		}
 
 		//////////////////
-
-		renderer.Prepare(bWireframe);
-		renderer.PrepareShader();
-
-		RECT rect;
-		GetClientRect(hWnd, &rect);
-		float clientWidth = (float)(rect.right - rect.left);
-		float clientHeight = (float)(rect.bottom - rect.top);
-		ivec2 window_size = { (int)clientWidth, (int)clientHeight };
-		POINT pt;
-		GetCursorPos(&pt); ScreenToClient(hWnd, &pt);
-		dvec2 cursor_pos = { (double)pt.x, (double)pt.y };
-		vec2 ndc_pos = cursor_to_ndc(cursor_pos, window_size);
-		float aspect = clientWidth / clientHeight;
-
-		mat4 projection_matrix = mat4::perspective(cam.fovy, aspect, cam.dnear, cam.dfar);
-
-		// ---------------------------------
-		// OpenGL(-1 ~ 1)¸¦ Direct3D(0 ~ 1)
-		// ---------------------------------
-		projection_matrix._33 = cam.dfar / (cam.dnear - cam.dfar);
-		projection_matrix._34 = (cam.dnear * cam.dfar) / (cam.dnear - cam.dfar);
-
-		mat4 view_projection = projection_matrix * cam.view_matrix;
-
-		if (b_rotating) current_angle += (float)(elapsedTime / 1000.0f) * 0.5f;
-		float c = cos(current_angle), s = sin(current_angle);
-		mat4 anim_matrix = {
-			c, -s, 0, 0,
-			s,  c, 0, 0,
-			0,  0, 1, 0,
-			0,  0, 0, 1
-		};
-		mat4 rotation_matrix = {
-			0, 1, 0, 0,
-			0, 0, 1, 0,
-			1, 0, 0, 0,
-			0, 0, 0, 1
-		};
-		mat4 model_matrix = rotation_matrix * anim_matrix;
-
-		URenderer::FConstants constantData;
-		constantData.model_matrix = model_matrix.transpose();
-		constantData.view_projection_matrix = view_projection.transpose();
-
-		constantData.light_position = vec4(5.0f, 0.0f, 0.0f, 1.0f);
-
-		constantData.Ia = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-		constantData.Id = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-		constantData.Is = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-
-		constantData.Ka = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-		constantData.Kd = vec4(0.7f, 0.7f, 0.7f, 1.0f);
-		constantData.Ks = vec4(0.8f, 0.8f, 0.8f, 1.0f);
-		constantData.shininess = 256.0f;
-
-		constantData.camera_position = cam.eye;
-
-		constantData.mode = i_solid_color;
-
-		renderer.UpdateConstant(constantData);
-
-		renderer.RenderPrimitive(vertexBufferSphere, numVerticesSphere);
-
-		renderer.SwapBuffer();
+		Update(elapsedTime, hWnd);
+		Render();
+		//////////////////
 
 		do
 		{
@@ -553,7 +461,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 			elapsedTime = (endTime.QuadPart - startTime.QuadPart) * 1000.0 / frequency.QuadPart;
 		} while (elapsedTime < targetFrameTime);
 	}
-
 	renderer.ReleaseFrameBuffer();
 	renderer.ReleaseVertexBuffer(vertexBufferSphere);
 	renderer.ReleaseConstantBuffer();
@@ -561,4 +468,126 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	renderer.Release();
 
 	return 0;
+}
+
+void Initialize(HWND windowHandle)
+{
+	renderer.Create(windowHandle);
+	renderer.CreateShader();
+	renderer.CreateConstantBuffer();
+	renderer.CreateTextureAndSampler("earth.jpg");
+
+	sphereVertices = create_sphere_vertices();
+	vertexBufferSphere = renderer.CreateVertexBuffer(sphereVertices.data(), (UINT)(sizeof(Vertex) * sphereVertices.size()));
+	numVerticesSphere = (UINT)sphereVertices.size();
+
+	cam.eye = vec3(5.0f, 0.0f, 0.0f);
+	cam.at = vec3(0.0f, 0.0f, 0.0f);
+	cam.up = vec3(0.0f, 1.0f, 0.0f);
+	cam.view_matrix = mat4::look_at(cam.eye, cam.at, cam.up);
+	cam0 = cam;
+}
+
+void ProcessInput(HWND hWnd, const MSG& msg)
+{
+	if (msg.message == WM_KEYDOWN)
+	{
+		if (msg.wParam == 'Q') bIsExit = true;
+		if (msg.wParam == 'D') i_solid_color = (i_solid_color + 1) % 3;
+		if (msg.wParam == 'R') b_rotating = !b_rotating;
+		if (msg.wParam == 'W') bWireframe = !bWireframe;
+		if (msg.wParam == VK_HOME)
+		{
+			current_angle = 0.0f;
+			cam = cam0;
+		}
+	}
+	else if (msg.message == WM_LBUTTONDOWN)
+	{
+		int x = LOWORD(msg.lParam);
+		int y = HIWORD(msg.lParam);
+
+		RECT rect;
+		GetClientRect(hWnd, &rect);
+		ivec2 window_size = { rect.right - rect.left, rect.bottom - rect.top };
+
+		vec2 npos = cursor_to_ndc(dvec2(x, y), window_size);
+		tb.begin(cam, npos);
+	}
+	else if (msg.message == WM_LBUTTONUP)
+	{
+		tb.end();
+	}
+	else if (msg.message == WM_MOUSEMOVE)
+	{
+		if (tb.is_tracking())
+		{
+			int x = LOWORD(msg.lParam);
+			int y = HIWORD(msg.lParam);
+
+			RECT rect;
+			GetClientRect(hWnd, &rect);
+			ivec2 window_size = { rect.right - rect.left, rect.bottom - rect.top };
+
+			vec2 npos = cursor_to_ndc(dvec2(x, y), window_size);
+			cam = tb.update(npos);
+		}
+	}
+}
+
+void Update(double elapsedTime, HWND hWnd)
+{
+	if (b_rotating)
+	{
+		current_angle += (float)(elapsedTime / 1000.0f) * 0.5f;
+	}
+
+	renderer.Prepare(bWireframe);
+	renderer.PrepareShader();
+
+	RECT rect;
+	GetClientRect(hWnd, &rect);
+	float clientWidth = (float)(rect.right - rect.left);
+	float clientHeight = (float)(rect.bottom - rect.top);
+	float aspect = clientWidth / clientHeight;
+
+	mat4 projection_matrix = perspective_d3d(cam.fovy, aspect, cam.dnear, cam.dfar);
+	mat4 view_projection = projection_matrix * cam.view_matrix;
+
+	float c = cos(current_angle), s = sin(current_angle);
+	mat4 anim_matrix = {
+		c, -s, 0, 0,
+		s,  c, 0, 0,
+		0,  0, 1, 0,
+		0,  0, 0, 1
+	};
+	mat4 rotation_matrix = {
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		1, 0, 0, 0,
+		0, 0, 0, 1
+	};
+	mat4 model_matrix = rotation_matrix * anim_matrix;
+
+	URenderer::FConstants constantData;
+	constantData.model_matrix = model_matrix.transpose();
+	constantData.view_projection_matrix = view_projection.transpose();
+	constantData.light_position = vec4(5.0f, 0.0f, 0.0f, 1.0f);
+	constantData.Ia = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	constantData.Id = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	constantData.Is = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	constantData.Ka = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	constantData.Kd = vec4(0.7f, 0.7f, 0.7f, 1.0f);
+	constantData.Ks = vec4(0.8f, 0.8f, 0.8f, 1.0f);
+	constantData.shininess = 256.0f;
+	constantData.camera_position = cam.eye;
+	constantData.mode = i_solid_color;
+
+	renderer.UpdateConstant(constantData);
+}
+
+void Render()
+{
+	renderer.RenderPrimitive(vertexBufferSphere, numVerticesSphere);
+	renderer.SwapBuffer();
 }

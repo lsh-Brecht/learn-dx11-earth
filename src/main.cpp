@@ -347,7 +347,8 @@ camera cam, cam0;
 
 bool bIsExit = false;
 bool b_rotating = true;
-float current_angle = 0.0f;
+float start_angle = radians(270.0f);
+float current_angle = start_angle;
 int i_solid_color = 0;
 bool bWireframe = false;
 
@@ -373,7 +374,7 @@ std::vector<Vertex> create_sphere_vertices()
 		{
 			float phi = (2.0f * PI * j) / float(num_x);
 			float sin_phi = sin(phi); float cos_phi = cos(phi);
-			float tx = (phi / (2.0f * PI));
+			float tx = 1.0f - (phi / (2.0f * PI));
 			float ty = theta / PI;
 			vec3 pos = vec3(sin_theta * cos_phi, sin_theta * sin_phi, cos_theta);
 			v.push_back({ pos, pos, vec2(tx, ty) });
@@ -388,10 +389,10 @@ std::vector<Vertex> create_sphere_vertices()
 			uint k0 = i * num_v_x + j; uint k1 = (i + 1) * num_v_x + j;
 			uint k2 = (i + 1) * num_v_x + (j + 1); uint k3 = i * num_v_x + (j + 1);
 			//0-1-3, 1-2-3(CCW) -> 0-3-1, 1-3-2(CW)
-			//indices.push_back(k0); indices.push_back(k1); indices.push_back(k3);
-			//indices.push_back(k1); indices.push_back(k2); indices.push_back(k3);
-			indices.push_back(k0); indices.push_back(k3); indices.push_back(k1);
-			indices.push_back(k1); indices.push_back(k3); indices.push_back(k2);
+			indices.push_back(k0); indices.push_back(k1); indices.push_back(k3);
+			indices.push_back(k1); indices.push_back(k2); indices.push_back(k3);
+			//indices.push_back(k0); indices.push_back(k3); indices.push_back(k1);
+			//indices.push_back(k1); indices.push_back(k3); indices.push_back(k2);
 		}
 	}
 
@@ -400,21 +401,7 @@ std::vector<Vertex> create_sphere_vertices()
 	return result_vertices;
 }
 
-mat4 perspective_d3d(float fovy, float aspect, float n, float f)
-{
-	mat4 result = {};
-	float tanHalfFovy = tan(fovy / 2.0f);
-
-	result._11 = 1.0f / (aspect * tanHalfFovy);
-	result._22 = 1.0f / tanHalfFovy;
-	result._33 = f / (n - f);
-	result._34 = (n * f) / (n - f);
-	result._43 = -1.0f;
-	result._44 = 0.0f;
-
-	return result;
-}
-
+/*---------------------------------------------------------------------------------------------*/
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
@@ -469,6 +456,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	return 0;
 }
+/*---------------------------------------------------------------------------------------------*/
 
 void Initialize(HWND windowHandle)
 {
@@ -484,7 +472,7 @@ void Initialize(HWND windowHandle)
 	cam.eye = vec3(5.0f, 0.0f, 0.0f);
 	cam.at = vec3(0.0f, 0.0f, 0.0f);
 	cam.up = vec3(0.0f, 1.0f, 0.0f);
-	cam.view_matrix = mat4::look_at(cam.eye, cam.at, cam.up);
+	cam.view_matrix = look_at_d3d_lh(cam.eye, cam.at, cam.up);
 	cam0 = cam;
 }
 
@@ -498,7 +486,7 @@ void ProcessInput(HWND hWnd, const MSG& msg)
 		if (msg.wParam == 'W') bWireframe = !bWireframe;
 		if (msg.wParam == VK_HOME)
 		{
-			current_angle = 0.0f;
+			current_angle = start_angle;
 			cam = cam0;
 		}
 	}
@@ -539,7 +527,7 @@ void Update(double elapsedTime, HWND hWnd)
 {
 	if (b_rotating)
 	{
-		current_angle += (float)(elapsedTime / 1000.0f) * 0.5f;
+		current_angle -= (float)(elapsedTime / 1000.0f) * 0.5f;
 	}
 
 	renderer.Prepare(bWireframe);
@@ -551,7 +539,7 @@ void Update(double elapsedTime, HWND hWnd)
 	float clientHeight = (float)(rect.bottom - rect.top);
 	float aspect = clientWidth / clientHeight;
 
-	mat4 projection_matrix = perspective_d3d(cam.fovy, aspect, cam.dnear, cam.dfar);
+	mat4 projection_matrix = perspective_d3d_lh(cam.fovy, aspect, cam.dnear, cam.dfar);
 	mat4 view_projection = projection_matrix * cam.view_matrix;
 
 	float c = cos(current_angle), s = sin(current_angle);

@@ -352,6 +352,11 @@ int i_solid_color = 0;
 bool bWireframe = false;
 
 mouse tb(1.0f);
+
+const int targetFPS = 30;
+const double targetFrameTime = 1000.0 / targetFPS;
+LARGE_INTEGER frequency, startTime, endTime;
+double elapsedTime = 0.0;
 ////////////////////////////////////
 
 std::vector<Vertex> create_sphere_vertices()
@@ -422,20 +427,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-	WCHAR WindowClassName[] = L"JungleWindowClass";
-	WCHAR Title[] = L"JungleWindowClass";
+	WCHAR WindowClassName[] = L"DX11Earth";
+	WCHAR Title[] = L"DX11Earth";
 	WNDCLASSW wndclass = { 0, WndProc, 0,0, 0,0,0,0,0, WindowClassName };
 	RegisterClassW(&wndclass);
 	HWND hWnd = CreateWindowExW(0, WindowClassName, Title, WS_POPUP | WS_VISIBLE | WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT, 1024, 1024, nullptr, nullptr, hInstance, nullptr);
 
 	Initialize(hWnd);
-
-	const int targetFPS = 30;
-	const double targetFrameTime = 1000.0 / targetFPS;
-	LARGE_INTEGER frequency, startTime, endTime;
 	QueryPerformanceFrequency(&frequency);
-	double elapsedTime = 0.0;
 
 	while (bIsExit == false)
 	{
